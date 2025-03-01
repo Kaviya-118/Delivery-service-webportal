@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Parcel Delivery Prediction</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <style>
+        #map {
+            height: 400px;
+            width: 100%;
+        }
+    </style>
+</head>
+<body>
+    <h1>Parcel Delivery Prediction</h1>
+    <input type="text" id="orderId" placeholder="Enter Order ID">
+    <br>
+    <input type="checkbox" id="manualLocation" onclick="toggleManualLocation()"> Manually enter delivery location
+    <div id="manualLocationInputs" style="display: none;">
+        <input type="text" id="address" placeholder="Enter Address (City, Country)">
+    </div>
+    <br>
+    <button onclick="getUserLocationAndPredict()">Predict Delivery Date</button>
+    <div id="result"></div>
+    <div id="map"></div>
+
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script>
+        function toggleManualLocation() {
+            const manualLocationInputs = document.getElementById('manualLocationInputs');
+            manualLocationInputs.style.display = manualLocationInputs.style.display === 'none' ? 'block' : 'none';
+        }
+
+        async function getUserLocationAndPredict() {
+            const orderId = document.getElementById('orderId').value;
+            if (!orderId) {
+                alert("Enter Order ID.");
+                return;
+            }
+
+            const manualLocation = document.getElementById('manualLocation').checked;
+            let latitude, longitude;
+
+            if (manualLocation) {
+                const address = document.getElementById('address').value;
+                if (!address) {
+                    alert("Enter a valid address.");
+                    return;
+                }
+                const geocodeResponse = await fetch(`https://api.opencagedata.com/geocode/v1/json?q=${encodeURIComponent(address)}&key=YOUR_API_KEY`);
+                const geocodeData = await geocodeResponse.json();
+                if (geocodeData.results.length === 0) {
+                    alert("Address not found.");
+                    return;
+                }
+                latitude = geocodeData.results[0].geometry.lat;
+                longitude = geocodeData.results[0].geometry.lng;
+                sendPredictionRequest(orderId, latitude, longitude);
+            } else {
+                if (navigator.geolocation) {
+                    navigator.geolocation.getCurrentPosition((position) => {
+                        latitude = position.coords.latitude;
+                        longitude = position.coords.longitude;
+                        sendPredictionRequest(orderId, latitude, longitude);
+                    }, (error) => {
+                        console.error("Geolocation error:", error);
+                        alert("Location access denied! Please enable location access in your browser settings.");
+                    });
+                } else {
+                    alert("Geolocation not supported.");
+                }
+            }
+        }
+
+        async function sendPredictionRequest(orderId, latitude, longitude) {
+            console.log("User location:", latitude, longitude);  // Debugging
+
+            const response = await fetch("http://127.0.0.1:5000/predict", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    order_id: orderId,
+                    user_location: { latitude, longitude },
+                }),
+            });
+
+            console.log("Fetch response:", response);  // Debugging
+
+            if (!response.ok) {
+                alert("Error: " + response.statusText);
+                return;
+            }
+
+            const data = await response.json();
+            console.log("Prediction data:", data);  // Debugging
+
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = `
+                <h2>Predicted Delivery Date: ${data.predicted_date}</h2>
+                <h3>Suggested Dates:</h3>
+                <ul>
+                    ${data.available_dates.map(date => `<li>${date}</li>`).join('')}
+                </ul>
+            `;
+
+            // Initialize the map
+            const map = L.map('map').setView([latitude, longitude], 13);
+
+            // Add OpenStreetMap tiles
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+            }).addTo(map);
+
+            // Add a marker for the user's location
+            L.marker([latitude, longitude]).addTo(map)
+                .bindPopup('Your Location')
+                .openPopup();
+
+            // Add a marker for the central hub location
+            const hubLatitude = 28.6139;  // Latitude of New Delhi, India
+            const hubLongitude = 77.2090;  // Longitude of New Delhi, India
+            L.marker([hubLatitude, hubLongitude]).addTo(map)
+                .bindPopup('Central Hub (India Post Office)')
+                .openPopup();
+        }
+    </script>
+</body>
+</html>
